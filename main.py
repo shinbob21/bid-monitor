@@ -11,7 +11,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 # --- 설정 정보 ---
 KEYWORDS = ["기프티콘", "모바일 쿠폰", "상품권"]
-EMAIL_RECEIVER = "SHIN.CHULWOOK@eland-partner.co.kr"
+EMAIL_RECEIVER = [
+    "SHIN.CHULWOOK@eland-partner.co.kr",
+    "kang.eunmi01@eland-partner.co.kr",
+]
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER")
 EMAIL_PW = os.environ.get("EMAIL_PW")
 STARBILL_ID = os.environ.get("STARBILL_ID")
@@ -37,12 +40,15 @@ def send_alert_email(subject, content):
         msg = MIMEText(content)
         msg['Subject'] = subject
         msg['From'] = EMAIL_SENDER
-        msg['To'] = EMAIL_RECEIVER
+        msg['To'] = ", ".join(EMAIL_RECEIVERS)
+
         with smtplib.SMTP_SSL('smtp.naver.com', 465) as server:
             server.login(EMAIL_SENDER, EMAIL_PW)
-            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVERS, msg.as_string())
+
     except Exception as e:
         print(f"이메일 발송 실패: {e}")
+
 
 def check_starbill(driver):
     found = []
