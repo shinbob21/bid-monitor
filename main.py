@@ -10,7 +10,7 @@ from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- 설정 정보 ---
-KEYWORDS = ["기프티콘", "모바일 쿠폰", "상품권", "쇼핑백", "종이 쇼핑백"]
+KEYWORDS = ["기프티콘", "모바일 쿠폰", "상품권", "쇼핑백", "종이 쇼핑백", "점보롤", "정수기", "공기청정기"]
 EMAIL_RECEIVER = [
     "SHIN.CHULWOOK@eland-partner.co.kr",
     "kang.eunmi01@eland-partner.co.kr",
