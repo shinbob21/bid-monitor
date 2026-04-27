@@ -26,7 +26,8 @@ LOG_FILE = "crawl_log.txt"
 SEEN_FILE = "seen_notices.txt"
 
 UNIVERSITY_URLS = {
-    "아주대": "https://www.ajou.ac.kr/kr/guide/bidding.do",
+    # 🔹 팝업 우회용 리스트 URL로 변경
+    "아주대": "https://www.ajou.ac.kr/kr/guide/bidding.do?mode=list&articleLimit=100",
     "인하대": "https://www.inha.ac.kr/kr/951/subview.do",
     "인천대": "https://www.inu.ac.kr/inu/1528/subview.do",
     "강남대": "https://gumae.kangnam.ac.kr/gumae/board/board_list.jsp?board_id=2",
@@ -50,7 +51,7 @@ def save_seen(url):
 
 def get_driver():
     options = Options()
-    options.add_argument("--headless=new")  # 최신 headless 모드
+    options.add_argument("--headless")  # GitHub Actions 호환용
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
@@ -65,7 +66,7 @@ def send_alert_email(subject, content, screenshot_path=None):
 
         msg.attach(MIMEText(content, "plain"))
 
-        if screenshot_path:
+        if screenshot_path and os.path.exists(screenshot_path):
             with open(screenshot_path, "rb") as f:
                 part = MIMEBase("application", "octet-stream")
                 part.set_payload(f.read())
@@ -88,6 +89,16 @@ def extract_text_safe(elem):
     except:
         return ""
 
+def handle_alert_if_any(driver):
+    try:
+        alert = driver.switch_to.alert
+        text = alert.text
+        log(f"알럿 감지됨: {text}")
+        alert.dismiss()
+        time.sleep(1)
+    except:
+        pass
+
 def crawl_university(driver, name, url, title_selector):
     results = []
     seen = load_seen()
@@ -95,6 +106,9 @@ def crawl_university(driver, name, url, title_selector):
     log(f"=== [{name}] 크롤링 시작 ===")
     driver.get(url)
     time.sleep(2)
+
+    # 🔹 아주대 같은 보안 팝업 자동 닫기
+    handle_alert_if_any(driver)
 
     titles = driver.find_elements(By.CSS_SELECTOR, title_selector)
 
@@ -111,6 +125,9 @@ def crawl_university(driver, name, url, title_selector):
         driver.execute_script("window.open(arguments[0]);", link)
         driver.switch_to.window(driver.window_handles[-1])
         time.sleep(1)
+
+        # 혹시 상세 페이지에서도 알럿이 뜨면 닫기
+        handle_alert_if_any(driver)
 
         page_text = driver.page_source
 
