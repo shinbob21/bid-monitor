@@ -37,3 +37,43 @@ jobs:
           sudo Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           sleep 2
           python bid_monitor.py
+name: Bid Monitor
+
+on:
+  schedule:
+    - cron: "0 0 * * 1,4"
+  workflow_dispatch:
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser xvfb chromium-chromedriver
+          sudo apt-get install -y libgbm1 libxss1 libappindicator3-1 libindicator7
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install selenium webdriver-manager beautifulsoup4 requests
+
+      - name: Run monitor
+        env:
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PW: ${{ secrets.EMAIL_PW }}
+          DISPLAY: :99
+        run: |
+          sudo Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          sleep 3
+          python bid_monitor.py
