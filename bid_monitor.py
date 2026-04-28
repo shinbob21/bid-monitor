@@ -62,15 +62,33 @@ def save_seen(url):
         f.write(url + "\n")
 
 def get_driver():
-    options = Options()
-    options.add_argument("--headless")  # GitHub Actions 호환
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    """Selenium 웹드라이버 초기화 (에러 처리 포함)"""
+    try:
+        options = Options()
+        options.add_argument("--headless")  # GitHub Actions 호환
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()), 
+            options=options
+        )
+        log("✅ 웹드라이버 초기화 성공")
+        return driver
+    except Exception as e:
+        log(f"❌ 웹드라이버 초기화 실패: {e}")
+        raise
 
 def send_alert_email(subject, content, screenshot_path=None):
+    """이메일 발송 (환경변수 검증 포함)"""
     try:
+        # 환경변수 검증
+        if not EMAIL_SENDER or not EMAIL_PW:
+            log("⚠️ 이메일 환경변수 미설정: EMAIL_SENDER 또는 EMAIL_PW 확인 필요")
+            return
+
         msg = MIMEMultipart()
         msg["Subject"] = subject
         msg["From"] = EMAIL_SENDER
@@ -96,19 +114,21 @@ def send_alert_email(subject, content, screenshot_path=None):
         log("📧 이메일 발송 완료")
 
     except Exception as e:
-        log(f"이메일 발송 실패: {e}")
+        log(f"❌ 이메일 발송 실패: {e}")
 
 def extract_text_safe(elem):
+    """텍스트 추출 (안전)"""
     try:
         return elem.text.strip()
     except:
         return ""
 
 def handle_alert_if_any(driver):
+    """알림창 처리"""
     try:
         alert = driver.switch_to.alert
         text = alert.text
-        log(f"알럿 감지됨: {text}")
+        log(f"⚠️ 알럿 감지됨: {text}")
         alert.dismiss()
         time.sleep(1)
     except:
@@ -119,6 +139,7 @@ def handle_alert_if_any(driver):
 # -----------------------------
 
 def crawl_ajou_requests():
+    """아주대 크롤링 (requests 기반)"""
     results = []
     seen = load_seen()
 
@@ -127,37 +148,44 @@ def crawl_ajou_requests():
 
     try:
         res = requests.get(url, timeout=10)
+        res.raise_for_status()
     except Exception as e:
         log(f"[아주대] 목록 요청 실패: {e}")
         return results
 
-    soup = BeautifulSoup(res.text, "html.parser")
-    links = soup.select("a")
+    try:
+        soup = BeautifulSoup(res.text, "html.parser")
+        links = soup.select("a")
 
-    for a in links:
-        title = a.get_text(strip=True)
-        href = a.get("href")
+        for a in links:
+            title = a.get_text(strip=True)
+            href = a.get("href")
 
-        if not title or not href:
-            continue
+            if not title or not href:
+                continue
 
-        if href.startswith("/"):
-            href = "https://www.ajou.ac.kr" + href
+            if href.startswith("/"):
+                href = "https://www.ajou.ac.kr" + href
 
-        if href in seen:
-            continue
+            if href in seen:
+                continue
 
-        try:
-            detail = requests.get(href, timeout=10)
-            detail_text = detail.text
-        except:
-            continue
+            try:
+                detail = requests.get(href, timeout=10)
+                detail.raise_for_status()
+                detail_text = detail.text
+            except:
+                continue
 
-        for kw in KEYWORDS:
-            if kw in title or kw in detail_text:
-                results.append(("아주대", title, href, None))
-                save_seen(href)
-                break
+            for kw in KEYWORDS:
+                if kw in title or kw in detail_text:
+                    results.append(("아주대", title, href, None))
+                    save_seen(href)
+                    log(f"🎯 [아주대] 키워드 매칭: {title}")
+                    break
+
+    except Exception as e:
+        log(f"[아주대] 크롤링 중 오류: {e}")
 
     return results
 
@@ -166,45 +194,64 @@ def crawl_ajou_requests():
 # -----------------------------
 
 def crawl_university(driver, name, url, title_selector):
+    """대학 입찰 공고 크롤링 (Selenium 기반)"""
     results = []
     seen = load_seen()
 
     log(f"=== [{name}] 크롤링 시작 ===")
-    driver.get(url)
-    time.sleep(2)
-
-    handle_alert_if_any(driver)
-
-    titles = driver.find_elements(By.CSS_SELECTOR, title_selector)
-
-    for t in titles:
-        title = extract_text_safe(t)
-        if not title:
-            continue
-
-        link = t.get_attribute("href")
-        if not link or link in seen:
-            continue
-
-        driver.execute_script("window.open(arguments[0]);", link)
-        driver.switch_to.window(driver.window_handles[-1])
-        time.sleep(1)
+    
+    try:
+        driver.get(url)
+        time.sleep(2)
 
         handle_alert_if_any(driver)
 
-        page_text = driver.page_source
+        titles = driver.find_elements(By.CSS_SELECTOR, title_selector)
+        log(f"[{name}] 발견된 링크 수: {len(titles)}")
 
-        screenshot_name = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        driver.save_screenshot(screenshot_name)
+        for t in titles:
+            try:
+                title = extract_text_safe(t)
+                if not title:
+                    continue
 
-        driver.close()
-        driver.switch_to.window(driver.window_handles[0])
+                link = t.get_attribute("href")
+                if not link or link in seen:
+                    continue
 
-        for kw in KEYWORDS:
-            if kw in title or kw in page_text:
-                results.append((name, title, link, screenshot_name))
-                save_seen(link)
-                break
+                driver.execute_script("window.open(arguments[0]);", link)
+                driver.switch_to.window(driver.window_handles[-1])
+                time.sleep(1)
+
+                handle_alert_if_any(driver)
+
+                page_text = driver.page_source
+
+                screenshot_name = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                driver.save_screenshot(screenshot_name)
+
+                driver.close()
+                driver.switch_to.window(driver.window_handles[0])
+
+                for kw in KEYWORDS:
+                    if kw in title or kw in page_text:
+                        results.append((name, title, link, screenshot_name))
+                        save_seen(link)
+                        log(f"🎯 [{name}] 키워드 매칭: {title}")
+                        break
+
+            except Exception as e:
+                log(f"[{name}] 개별 링크 처리 중 오류: {e}")
+                # 창 정리
+                try:
+                    driver.close()
+                    driver.switch_to.window(driver.window_handles[0])
+                except:
+                    pass
+                continue
+
+    except Exception as e:
+        log(f"❌ [{name}] 크롤링 중 오류: {e}")
 
     return results
 
@@ -213,30 +260,48 @@ def crawl_university(driver, name, url, title_selector):
 # -----------------------------
 
 def run_job():
+    """메인 작업 실행"""
+    log("=" * 50)
     log("입찰 추적 시작...")
+    log("=" * 50)
 
-    driver = get_driver()
-    all_results = []
+    driver = None
+    try:
+        driver = get_driver()
+        all_results = []
 
-    # 아주대는 오직 requests 버전만 사용
-    all_results.extend(crawl_ajou_requests())
+        # 아주대는 오직 requests 버전만 사용
+        all_results.extend(crawl_ajou_requests())
 
-    # 나머지 대학만 Selenium 사용
-    all_results.extend(crawl_university(driver, "인하대", UNIVERSITY_URLS["인하대"], ".board-list a"))
-    all_results.extend(crawl_university(driver, "인천대", UNIVERSITY_URLS["인천대"], ".board-list a"))
-    all_results.extend(crawl_university(driver, "강남대", UNIVERSITY_URLS["강남대"], "td.subject a"))
-    all_results.extend(crawl_university(driver, "부천대", UNIVERSITY_URLS["부천대"], ".board_list a"))
+        # 나머지 대학만 Selenium 사용
+        all_results.extend(crawl_university(driver, "인하대", UNIVERSITY_URLS["인하대"], ".board-list a"))
+        all_results.extend(crawl_university(driver, "인천대", UNIVERSITY_URLS["인천대"], ".board-list a"))
+        all_results.extend(crawl_university(driver, "강남대", UNIVERSITY_URLS["강남대"], "td.subject a"))
+        all_results.extend(crawl_university(driver, "부천대", UNIVERSITY_URLS["부천대"], ".board_list a"))
 
-    driver.quit()
+        if all_results:
+            log(f"\n📢 총 {len(all_results)}개 공고 발견! 이메일 발송 중...")
+            for name, title, link, screenshot in all_results:
+                content = f"[{name}] 새로운 공고 발견\n\n제목: {title}\n링크: {link}"
+                send_alert_email("[입찰 알림] 새로운 공고 발견", content, screenshot)
+        else:
+            log("✅ 발견된 공고 없음.")
 
-    if all_results:
-        for name, title, link, screenshot in all_results:
-            content = f"[{name}] 새로운 공고 발견\n\n제목: {title}\n링크: {link}"
-            send_alert_email("[입찰 알림] 새로운 공고 발견", content, screenshot)
-    else:
-        log("발견된 공고 없음.")
+    except Exception as e:
+        log(f"❌ 작업 중 오류 발생: {e}")
+        
+    finally:
+        # 드라이버 안전하게 종료
+        if driver:
+            try:
+                driver.quit()
+                log("✅ 웹드라이버 종료")
+            except Exception as e:
+                log(f"⚠️ 드라이�� 종료 중 오류: {e}")
 
+    log("=" * 50)
     log("작업 완료.")
+    log("=" * 50)
 
 if __name__ == "__main__":
     run_job()
