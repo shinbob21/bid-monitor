@@ -1,6 +1,8 @@
 import os
 import time
 import smtplib
+import requests
+from bs4 import BeautifulSoup
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -11,6 +13,10 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from datetime import datetime
+
+# -----------------------------
+# 설정
+# -----------------------------
 
 KEYWORDS = ["기프티콘", "모바일 쿠폰", "상품권", "쇼핑백", "종이 쇼핑백", "점보롤", "정수기", "공기청정기"]
 
@@ -26,13 +32,15 @@ LOG_FILE = "crawl_log.txt"
 SEEN_FILE = "seen_notices.txt"
 
 UNIVERSITY_URLS = {
-    # 🔹 팝업 우회용 리스트 URL로 변경
-    "아주대": "https://www.ajou.ac.kr/kr/guide/bidding.do?mode=list&articleLimit=100",
     "인하대": "https://www.inha.ac.kr/kr/951/subview.do",
     "인천대": "https://www.inu.ac.kr/inu/1528/subview.do",
     "강남대": "https://gumae.kangnam.ac.kr/gumae/board/board_list.jsp?board_id=2",
     "부천대": "https://www.bc.ac.kr/bcu/pr/notice04.do?mode=list&&articleLimit=10&article.offset=0"
 }
+
+# -----------------------------
+# 공통 함수
+# -----------------------------
 
 def log(msg):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -51,7 +59,7 @@ def save_seen(url):
 
 def get_driver():
     options = Options()
-    options.add_argument("--headless")  # GitHub Actions 호환용
+    options.add_argument("--headless")  # GitHub Actions 호환
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
@@ -99,6 +107,56 @@ def handle_alert_if_any(driver):
     except:
         pass
 
+# -----------------------------
+# 아주대 전용 (requests 기반)
+# -----------------------------
+
+def crawl_ajou_requests():
+    results = []
+    seen = load_seen()
+
+    url = "https://www.ajou.ac.kr/kr/guide/bidding.do?mode=list&articleLimit=100"
+    log("=== [아주대] requests 기반 크롤링 시작 ===")
+
+    res = requests.get(url, timeout=10)
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    links = soup.select("a")
+
+    for a in links:
+        title = a.get_text(strip=True)
+        href = a.get("href")
+
+        if not title or not href:
+            continue
+
+        # 절대 URL 변환
+        if href.startswith("/"):
+            href = "https://www.ajou.ac.kr" + href
+
+        if href in seen:
+            continue
+
+        # 상세 페이지 요청
+        try:
+            detail = requests.get(href, timeout=10)
+            detail_text = detail.text
+        except:
+            continue
+
+        # 키워드 매칭
+        for kw in KEYWORDS:
+            if kw in title or kw in detail_text:
+                results.append(("아주대", title, href, None))  # 스크린샷 없음
+                save_seen(href)
+                break
+
+    return results
+
+# -----------------------------
+# Selenium 기반 대학 크롤링
+# -----------------------------
+
 def crawl_university(driver, name, url, title_selector):
     results = []
     seen = load_seen()
@@ -107,7 +165,6 @@ def crawl_university(driver, name, url, title_selector):
     driver.get(url)
     time.sleep(2)
 
-    # 🔹 아주대 같은 보안 팝업 자동 닫기
     handle_alert_if_any(driver)
 
     titles = driver.find_elements(By.CSS_SELECTOR, title_selector)
@@ -126,7 +183,6 @@ def crawl_university(driver, name, url, title_selector):
         driver.switch_to.window(driver.window_handles[-1])
         time.sleep(1)
 
-        # 혹시 상세 페이지에서도 알럿이 뜨면 닫기
         handle_alert_if_any(driver)
 
         page_text = driver.page_source
@@ -147,12 +203,20 @@ def crawl_university(driver, name, url, title_selector):
 
     return results
 
+# -----------------------------
+# 메인 실행
+# -----------------------------
+
 def run_job():
     log("입찰 추적 시작...")
+
     driver = get_driver()
     all_results = []
 
-    all_results.extend(crawl_university(driver, "아주대", UNIVERSITY_URLS["아주대"], "a"))
+    # 아주대는 requests 방식
+    all_results.extend(crawl_ajou_requests())
+
+    # 나머지 대학은 Selenium 방식
     all_results.extend(crawl_university(driver, "인하대", UNIVERSITY_URLS["인하대"], ".board-list a"))
     all_results.extend(crawl_university(driver, "인천대", UNIVERSITY_URLS["인천대"], ".board-list a"))
     all_results.extend(crawl_university(driver, "강남대", UNIVERSITY_URLS["강남대"], "td.subject a"))
