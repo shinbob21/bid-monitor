@@ -3,9 +3,9 @@ import time
 import smtplib
 import requests
 from bs4 import BeautifulSoup
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
+from email.mime_text import MIMEText
+from email.mime_multipart import MIMEMultipart
+from email.mime_base import MIMEBase
 from email import encoders
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -63,7 +63,7 @@ def save_seen(url):
 
 def get_driver():
     options = Options()
-    options.add_argument("--headless")  # GitHub Actions 호환
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
@@ -155,7 +155,7 @@ def crawl_ajou_requests():
 
         for kw in KEYWORDS:
             if kw in title or kw in detail_text:
-                results.append(("아주대", title, href, None))  # 스크린샷 없음
+                results.append(("아주대", title, href, None))
                 save_seen(href)
                 break
 
@@ -218,10 +218,10 @@ def run_job():
     driver = get_driver()
     all_results = []
 
-    # ✅ 아주대는 오직 requests 버전만 사용
+    # 아주대는 오직 requests 버전만 사용
     all_results.extend(crawl_ajou_requests())
 
-    # ✅ 나머지 대학만 Selenium 사용
+    # 나머지 대학만 Selenium 사용
     all_results.extend(crawl_university(driver, "인하대", UNIVERSITY_URLS["인하대"], ".board-list a"))
     all_results.extend(crawl_university(driver, "인천대", UNIVERSITY_URLS["인천대"], ".board-list a"))
     all_results.extend(crawl_university(driver, "강남대", UNIVERSITY_URLS["강남대"], "td.subject a"))
