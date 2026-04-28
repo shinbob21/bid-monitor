@@ -21,7 +21,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-driver
+          sudo apt-get install -y chromium-browser xvfb
 
       - name: Install Python dependencies
         run: |
@@ -32,5 +32,8 @@ jobs:
         env:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PW: ${{ secrets.EMAIL_PW }}
+          DISPLAY: :99
         run: |
+          sudo Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          sleep 2
           python bid_monitor.py
